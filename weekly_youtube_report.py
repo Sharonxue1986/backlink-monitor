@@ -38,31 +38,80 @@ def send_to_feishu(report_data):
     brand_text = "\n".join([f"• {brand}: {stats['count']}个视频, {stats['views']}观看" 
                            for brand, stats in brand_stats.items()])
     
+    # 使用富文本消息，支持 @ 用户
     message = {
-        "msg_type": "text",
+        "msg_type": "post",
         "content": {
-            "text": f"""📊 YouTube KOL 推广周报
-
-📅 时间: {report_data.get('time_range', '最近一周')}
-📈 总视频数: {total_videos}
-👀 总观看数: {total_views}
-
-📋 各品牌数据:
-{brand_text}
-
-🔗 详细报告: https://pcn3zxfoc68k.feishu.cn/base/C5TwbEqjLasVAls4zzTckKBQnwc
-
-⏰ 报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+            "post": {
+                "zh_cn": {
+                    "title": "📊 YouTube KOL 推广周报",
+                    "content": [
+                        [
+                            {
+                                "tag": "text",
+                                "text": "📅 时间: "
+                            },
+                            {
+                                "tag": "text",
+                                "text": f"{report_data.get('time_range', '最近一周')}\n"
+                            },
+                            {
+                                "tag": "text",
+                                "text": "📈 总视频数: "
+                            },
+                            {
+                                "tag": "text",
+                                "text": f"{total_videos}\n"
+                            },
+                            {
+                                "tag": "text",
+                                "text": "👀 总观看数: "
+                            },
+                            {
+                                "tag": "text",
+                                "text": f"{total_views}\n\n"
+                            },
+                            {
+                                "tag": "text",
+                                "text": "📋 各品牌数据:\n"
+                            },
+                            {
+                                "tag": "text",
+                                "text": f"{brand_text}\n\n"
+                            },
+                            {
+                                "tag": "a",
+                                "text": "🔗 查看详细报告",
+                                "href": "https://pcn3zxfoc68k.feishu.cn/base/C5TwbEqjLasVAls4zzTckKBQnwc"
+                            },
+                            {
+                                "tag": "text",
+                                "text": "\n\n"
+                            },
+                            {
+                                "tag": "at",
+                                "user_id": "ou_d7b6afe46cf227fcbbaf6f39644022a9",
+                                "user_name": "薛春暖"
+                            },
+                            {
+                                "tag": "text",
+                                "text": " 这是本周的 YouTube KOL 推广报告，请查收！"
+                            }
+                        ]
+                    ]
+                }
+            }
         }
     }
     
     try:
         response = requests.post(FEISHU_WEBHOOK_URL, json=message, timeout=10)
         if response.status_code == 200:
-            print("✅ 报告已发送到飞书")
+            print("✅ 报告已发送到飞书并 @ 薛春暖")
             return True
         else:
             print(f"❌ 发送失败: {response.status_code}")
+            print(f"响应: {response.text}")
             return False
     except Exception as e:
         print(f"❌ 发送出错: {e}")
