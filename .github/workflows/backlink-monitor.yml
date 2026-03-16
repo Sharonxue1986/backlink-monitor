@@ -1,12 +1,12 @@
-name: Backlink Monitor
+name: Weekly YouTube KOL Report
 
 on:
   schedule:
-    - cron: '0 9 * * *'  # 每天 UTC 9:00 运行 (北京时间 17:00)
+    - cron: '30 1 * * 1'  # 每周一 UTC 1:30 运行 (北京时间 9:30)
   workflow_dispatch:  # 允许手动触发
 
 jobs:
-  monitor:
+  generate-report:
     runs-on: ubuntu-latest
     
     steps:
@@ -22,20 +22,14 @@ jobs:
       run: |
         pip install feedparser pandas openpyxl requests beautifulsoup4
         
-    - name: Run backlink checker
-      run: python check_backlinks.py
+    - name: Generate YouTube KOL report
+      run: python weekly_youtube_report.py
+      env:
+        FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
       
     - name: Upload report
       uses: actions/upload-artifact@v3
       with:
-        name: backlink-report-${{ github.run_date }}
+        name: youtube-kol-report-${{ github.run_date }}
         path: reports/
         retention-days: 30
-        
-    - name: Commit report to repository
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add reports/
-        git commit -m "Update backlink report $(date +%Y-%m-%d)" || echo "No changes"
-        git push || echo "Nothing to push"
