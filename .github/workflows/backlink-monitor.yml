@@ -1,0 +1,41 @@
+name: Backlink Monitor
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # 每天 UTC 9:00 运行 (北京时间 17:00)
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        pip install feedparser pandas openpyxl requests beautifulsoup4
+        
+    - name: Run backlink checker
+      run: python check_backlinks.py
+      
+    - name: Upload report
+      uses: actions/upload-artifact@v3
+      with:
+        name: backlink-report-${{ github.run_date }}
+        path: reports/
+        retention-days: 30
+        
+    - name: Commit report to repository
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add reports/
+        git commit -m "Update backlink report $(date +%Y-%m-%d)" || echo "No changes"
+        git push || echo "Nothing to push"
