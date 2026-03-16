@@ -13,22 +13,25 @@ import re
 import json
 import os
 
-# 搜索配置
-SEARCH_QUERIES = {
+# Google Alerts RSS Feed URLs
+ALERTS_RSS_URLS = {
     "tenorshare": [
-        "tenorshare.com",
-        "tenorshare 4ukey",
-        "tenorshare review",
-        "tenorshare 4ddig",
-        "tenorshare icarefone",
-        "tenorshare ianygo"
+        "https://www.google.com/alerts/feeds/00693704181867916775/16572276136164822175"
     ],
     "imyfone": [
-        "imyfone.com",
-        "imyfone d-back",
-        "imyfone review",
-        "imyfone chatart",
-        "imyfone magicmic"
+        "https://www.google.com/alerts/feeds/00693704181867916775/16572276136164821283"
+    ],
+    "ianygo": [
+        "https://www.google.com/alerts/feeds/00693704181867916775/16078198233704014018"
+    ],
+    "4ddig": [
+        "https://www.google.com/alerts/feeds/00693704181867916775/15883321554252704360"
+    ],
+    "icarefone": [
+        "https://www.google.com/alerts/feeds/00693704181867916775/13054306810209588923"
+    ],
+    "imyfone_anyto": [
+        "https://www.google.com/alerts/feeds/00693704181867916775/9718672333614377555"
     ]
 }
 
@@ -133,42 +136,67 @@ def search_google(query, num_results=10):
         print(f"搜索出错: {e}")
         return []
 
+def fetch_rss_feed(rss_url, brand, days=7):
+    """从 RSS Feed 获取外链"""
+    try:
+        import feedparser
+        feed = feedparser.parse(rss_url)
+        new_links = []
+        cutoff_date = datetime.now() - timedelta(days=days)
+        
+        for entry in feed.entries:
+            try:
+                published = datetime(*entry.published_parsed[:6])
+                if published >= cutoff_date:
+                    # 从 summary 中提取链接
+                    summary = entry.get('summary', '')
+                    # 解析 HTML 提取链接
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(summary, 'html.parser')
+                    links = soup.find_all('a')
+                    
+                    for link in links:
+                        url = link.get('href', '')
+                        if url and url.startswith('http') and 'google.com' not in url:
+                            new_links.append({
+                                'date': published.strftime("%Y-%m-%d"),
+                                'brand': brand,
+                                'title': entry.title,
+                                'url': url,
+                                'source_site': url.split('/')[2].replace('www.', ''),
+                                'estimated_dr': estimate_dr(url),
+                                'keywords': extract_keywords(entry.title, brand)
+                            })
+            except:
+                continue
+        
+        return new_links
+    except Exception as e:
+        print(f"Error fetching RSS {rss_url}: {e}")
+        return []
+
 def generate_report():
     """生成外链报告"""
     all_links = []
-    today = datetime.now().strftime("%Y-%m-%d")
     
-    print("🔍 开始搜索外链...")
+    print("🔍 开始抓取 RSS Feed...")
     print(f"⏰ 当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("-" * 60)
     
-    for brand, queries in SEARCH_QUERIES.items():
-        print(f"\n📌 搜索品牌: {brand}")
+    for brand, rss_urls in ALERTS_RSS_URLS.items():
+        print(f"\n📌 抓取品牌: {brand}")
         
-        for query in queries:
-            print(f"   关键词: {query}")
+        for rss_url in rss_urls:
+            print(f"   RSS: {rss_url[:60]}...")
             
-            # 搜索 Google
-            results = search_google(query)
+            # 抓取 RSS
+            links = fetch_rss_feed(rss_url, brand)
+            all_links.extend(links)
             
-            for result in results:
-                # 排除 Google 自己的页面
-                if 'google.com' in result['url']:
-                    continue
-                
-                all_links.append({
-                    'date': today,
-                    'brand': brand,
-                    'search_keyword': query,
-                    'title': result['title'],
-                    'url': result['url'],
-                    'source_site': result['url'].split('/')[2].replace('www.', ''),
-                    'estimated_dr': estimate_dr(result['url']),
-                    'keywords': extract_keywords(result['title'], brand)
-                })
+            print(f"   发现 {len(links)} 个外链")
             
             # 延迟，避免被封
-            time.sleep(2)
+            time.sleep(1)
     
     # 去重
     seen_urls = set()

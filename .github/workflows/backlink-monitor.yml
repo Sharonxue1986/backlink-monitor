@@ -23,7 +23,7 @@ jobs:
         pip install feedparser pandas openpyxl requests beautifulsoup4
         
     - name: Run backlink checker
-      run: python check_backlinks_google_search.py
+      run: python check_backlinks.py
       
     - name: Upload report
       uses: actions/upload-artifact@v3

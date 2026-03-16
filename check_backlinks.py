@@ -1,36 +1,41 @@
 #!/usr/bin/env python3
 """
-外链监控脚本
-监控 tenorshare.com 和 imyfone.com 的新外链
+外链监控脚本 - RSS Feed 版
+通过 Google Alerts RSS 获取外链
 """
 
 import feedparser
 import pandas as pd
 from datetime import datetime, timedelta
-import os
+import time
 import re
 import json
+import os
+from bs4 import BeautifulSoup
 
 # Google Alerts RSS Feed URLs
-# 注意：需要替换为实际的 RSS URL
 ALERTS_RSS_URLS = {
     "tenorshare": [
-        # 示例格式，需要替换为实际的 RSS URL
-        # "https://www.google.com/alerts/feeds/.../tenorshare",
+        "https://www.google.com/alerts/feeds/00693704181867916775/16572276136164822175"
     ],
     "imyfone": [
-        # 示例格式，需要替换为实际的 RSS URL
-        # "https://www.google.com/alerts/feeds/.../imyfone",
+        "https://www.google.com/alerts/feeds/00693704181867916775/16572276136164821283"
+    ],
+    "ianygo": [
+        "https://www.google.com/alerts/feeds/00693704181867916775/16078198233704014018"
+    ],
+    "4ddig": [
+        "https://www.google.com/alerts/feeds/00693704181867916775/15883321554252704360"
+    ],
+    "icarefone": [
+        "https://www.google.com/alerts/feeds/00693704181867916775/13054306810209588923"
+    ],
+    "imyfone_anyto": [
+        "https://www.google.com/alerts/feeds/00693704181867916775/9718672333614377555"
     ]
 }
 
-# 品牌关键词配置
-BRAND_KEYWORDS = {
-    "tenorshare": ["tenorshare", "4ukey", "4ddig", "icarefone", "ianygo"],
-    "imyfone": ["imyfone", "chatart", "magicmic", "d-back", "ulmate"]
-}
-
-# 预估 DR 值 (基于网站类型)
+# 预估 DR 值
 DR_ESTIMATES = {
     "techradar.com": 91,
     "cnet.com": 93,
@@ -56,106 +61,110 @@ DR_ESTIMATES = {
     "fonearena.com": 71,
     "gizchina.com": 75,
     "cultofmac.com": 79,
+    "youtube.com": 99,
+    "facebook.com": 96,
+    "twitter.com": 94,
+    "linkedin.com": 98,
 }
 
 def estimate_dr(url):
     """根据域名预估 DR 值"""
-    domain = re.findall(r'https?://([^/]+)', url)
-    if domain:
-        domain = domain[0].replace('www.', '')
-        return DR_ESTIMATES.get(domain, 50)  # 默认50
-    return 50
+    try:
+        domain = re.findall(r'https?://(?:www\.)?([^/]+)', url)[0]
+        return DR_ESTIMATES.get(domain, 50)
+    except:
+        return 50
 
 def extract_keywords(title, brand):
     """提取关键词"""
-    keywords = []
+    keywords = [brand]
     title_lower = title.lower()
     
-    # 品牌关键词
-    for kw in BRAND_KEYWORDS.get(brand, []):
-        if kw in title_lower:
-            keywords.append(kw)
-    
-    # 通用关键词
-    common_keywords = ["review", "tutorial", "guide", "alternative", "vs", "comparison"]
+    common_keywords = ["review", "tutorial", "guide", "alternative", "vs", "comparison", "download", "free"]
     for kw in common_keywords:
         if kw in title_lower:
             keywords.append(kw)
     
-    return ", ".join(keywords) if keywords else brand
+    return ", ".join(keywords)
 
-def fetch_google_alerts(rss_url, days=7):
-    """从 Google Alerts RSS 抓取外链"""
+def fetch_rss_feed(rss_url, brand, days=7):
+    """从 RSS Feed 获取外链"""
     try:
         feed = feedparser.parse(rss_url)
         new_links = []
         cutoff_date = datetime.now() - timedelta(days=days)
         
+        print(f"   解析 RSS: {rss_url[:50]}...")
+        print(f"   找到 {len(feed.entries)} 个条目")
+        
         for entry in feed.entries:
             try:
                 published = datetime(*entry.published_parsed[:6])
                 if published >= cutoff_date:
-                    # 从 summary 中提取实际链接
+                    # 从 summary 中提取链接
                     summary = entry.get('summary', '')
-                    urls = re.findall(r'href=["\'](https?://[^"\']+)["\']', summary)
                     
-                    for url in urls:
-                        new_links.append({
-                            "title": entry.title,
-                            "url": url,
-                            "published": published.strftime("%Y-%m-%d"),
-                            "source": rss_url
-                        })
-            except:
+                    # 解析 HTML
+                    soup = BeautifulSoup(summary, 'html.parser')
+                    links = soup.find_all('a', href=True)
+                    
+                    for link in links:
+                        url = link['href']
+                        # 清理 Google 跳转链接
+                        if '/url?q=' in url:
+                            url = url.split('/url?q=')[1].split('&')[0]
+                        
+                        # 排除 Google 和非 http 链接
+                        if url and url.startswith('http') and 'google.com' not in url and 'youtube.com' not in url:
+                            new_links.append({
+                                'date': published.strftime("%Y-%m-%d"),
+                                'brand': brand,
+                                'title': entry.title,
+                                'url': url,
+                                'source_site': url.split('/')[2].replace('www.', ''),
+                                'estimated_dr': estimate_dr(url),
+                                'keywords': extract_keywords(entry.title, brand)
+                            })
+            except Exception as e:
+                print(f"   解析条目出错: {e}")
                 continue
         
         return new_links
     except Exception as e:
-        print(f"Error fetching {rss_url}: {e}")
+        print(f"Error fetching RSS {rss_url}: {e}")
         return []
 
 def generate_report():
     """生成外链报告"""
     all_links = []
     
-    # 从 RSS 抓取
-    for brand, urls in ALERTS_RSS_URLS.items():
-        for rss_url in urls:
-            if rss_url:  # 确保 URL 不为空
-                links = fetch_google_alerts(rss_url)
-                for link in links:
-                    link["brand"] = brand
-                    link["estimated_dr"] = estimate_dr(link["url"])
-                    link["keywords"] = extract_keywords(link["title"], brand)
-                    all_links.append(link)
+    print("🔍 开始抓取 RSS Feed...")
+    print(f"⏰ 当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("-" * 60)
     
-    # 如果没有 RSS 数据，使用示例数据（实际使用时删除）
-    if not all_links:
-        print("警告: 没有配置 RSS URL，请更新 ALERTS_RSS_URLS")
-        # 示例数据
-        all_links = [
-            {
-                "date": "2026-03-15",
-                "brand": "tenorshare",
-                "title": "Tenorshare 4uKey Review 2026",
-                "source_site": "TechRadar",
-                "estimated_dr": 91,
-                "url": "https://www.techradar.com/reviews/tenorshare-4ukey",
-                "keywords": "4ukey, review"
-            },
-            {
-                "date": "2026-03-14",
-                "brand": "imyfone",
-                "title": "iMyFone ChatArt AI Review",
-                "source_site": "Product Hunt",
-                "estimated_dr": 90,
-                "url": "https://www.producthunt.com/products/imyfone-chatart",
-                "keywords": "chatart, AI, review"
-            }
-        ]
+    for brand, rss_urls in ALERTS_RSS_URLS.items():
+        print(f"\n📌 抓取品牌: {brand}")
+        
+        for rss_url in rss_urls:
+            # 抓取 RSS
+            links = fetch_rss_feed(rss_url, brand)
+            all_links.extend(links)
+            
+            print(f"   ✅ 发现 {len(links)} 个外链")
+            
+            # 延迟，避免被封
+            time.sleep(2)
+    
+    # 去重
+    seen_urls = set()
+    unique_links = []
+    for link in all_links:
+        if link['url'] not in seen_urls:
+            seen_urls.add(link['url'])
+            unique_links.append(link)
     
     # 创建 DataFrame
-    df = pd.DataFrame(all_links)
+    df = pd.DataFrame(unique_links)
     
     # 确保目录存在
     os.makedirs("reports", exist_ok=True)
@@ -168,11 +177,11 @@ def generate_report():
     # 保存为 Excel
     if not df.empty:
         # 调整列顺序
-        columns = ["date", "brand", "title", "source_site", "estimated_dr", "url", "keywords"]
+        columns = ['date', 'brand', 'title', 'source_site', 'estimated_dr', 'url', 'keywords']
         df = df[[col for col in columns if col in df.columns]]
         
         df.to_excel(excel_file, index=False, engine='openpyxl')
-        print(f"✅ Excel 报告已保存: {excel_file}")
+        print(f"\n✅ Excel 报告已保存: {excel_file}")
         
         # 保存为 JSON
         df.to_json(json_file, orient='records', force_ascii=False, indent=2)
@@ -180,22 +189,24 @@ def generate_report():
         
         # 打印摘要
         print("\n📊 报告摘要:")
-        print(f"   发现新外链: {len(df)} 个")
-        if 'brand' in df.columns:
-            for brand in df['brand'].unique():
-                count = len(df[df['brand'] == brand])
-                print(f"   - {brand}: {count} 个")
+        print(f"   总外链: {len(df)} 个")
+        print(f"   去重后: {len(unique_links)} 个")
+        for brand in df['brand'].unique():
+            count = len(df[df['brand'] == brand])
+            print(f"   - {brand}: {count} 个")
     else:
-        print("⚠️ 没有发现新外链")
+        print("\n⚠️ 没有发现新外链")
     
     return df
 
 if __name__ == "__main__":
-    print("🔍 开始监控外链...")
-    print(f"⏰ 当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("-" * 60)
+    print("=" * 70)
+    print("🔍 Google Alerts RSS 外链监控")
+    print("=" * 70)
+    print()
     
     df = generate_report()
     
-    print("-" * 60)
+    print("\n" + "=" * 70)
     print("✅ 监控完成!")
+    print("=" * 70)
